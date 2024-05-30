@@ -1,0 +1,81 @@
+import os
+import sys
+import pandas as pd
+import scanpy as sc
+import numpy as np
+import scipy
+import gzip
+import matplotlib.pyplot as plt
+import matplotlib.image as im
+
+snps_dir="/home/cbrand/snp/results/exp2_4/combine"; #Directory with snp data after cellsnp
+
+dir_list=[f"{snps_dir}/RNA",f"{snps_dir}/ATAC"];
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#  
+#Load vcf, samples from RNA data (should be equal to ATAC!) as feature matrix, barcode matrix
+
+with gzip.open(f'{snps_dir}/RNA/cellSNP.base.vcf.gz', mode='r') as gz:
+    features=pd.read_csv(gz,sep="\t",skiprows=1);
+    features=features.rename(columns={'#CHROM':'CHROM'})[['CHROM','POS','REF','ALT']]
+    features=features.set_index(features['CHROM'].astype(str) + '_' + features['POS'].astype(str) + '_' + features['REF'] + '->' + features['ALT']);
+
+barcodes=pd.read_csv(f'{snps_dir}/RNA/cellSNP.samples.tsv', sep='\t', names=['bc']);
+barcodes['bc']=barcodes['bc'].str.split('-1').str[0];
+barcodes=barcodes.set_index('bc');
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
+#build AnnData from barcodes & features, add RNA and ATAC data as layers
+
+adata=sc.AnnData(obs=barcodes,var=features);
+
+for directory in dir_list:
+    AD=scipy.io.mmread(f'{directory}/cellSNP.tag.AD.mtx').T.tocsr();
+    adata.layers[f"{os.path.split(directory)[1]}"]=AD
+
+RNAlayer=adata.to_df(layer="RNA");
+ATAClayer=adata.to_df(layer="ATAC");
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
+#calculate total feature counts of features with nonzero entries
+
+featWithADsRNA=RNAlayer.columns[np.count_nonzero(RNAlayer,axis=0)!=0];
+featWithADsATAC=ATAClayer.columns[np.count_nonzero(ATAClayer,axis=0)!=0];
+featWithADsBOTH=featWithADsRNA.intersection(featWithADsATAC);
+
+featCountsDf=pd.DataFrame([len(featWithADsRNA),len(featWithADsATAC),len(featWithADsBOTH)],index=["RNA","ATAC","Both"],columns=["N loci"]);
+featCountsDf.to_csv(f"{snps_dir}/totalFeatCounts_AllCells.csv");
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
+#single cell level counting
+
+listIntersec=[];
+listRNA=[];
+listATAC=[];
+listBothExample=[];
+listExampleCells=[];
+
+for cell in RNAlayer.index:
+    nonzeroesRNA=np.nonzero(RNAlayer.loc[cell]);
+    nonzeroesATAC=np.nonzero(ATAClayer.loc[cell]);
+    intersection=np.intersect1d(nonzeroesRNA,nonzeroesATAC);
+    if len(intersection)>=5:
+        listBothExample.append(intersection)
+        listExampleCells.append(cell)
+    listRNA.append(np.count_nonzero(nonzeroesRNA)); #"len()" doesn't work here?
+    listATAC.append(np.count_nonzero(nonzeroesATAC)); 
+    listIntersec.append(np.count_nonzero(intersection));
+
+listTotal=[listRNA,listATAC,listIntersec];
+
+ResultsDf=pd.DataFrame(listTotal, columns=[RNAlayer.index],index=["RNA","ATAC","Both"]);
+ResultsDf.to_csv(f"{snps_dir}/RNA_ATAC_perCellResults.csv");
+
+ExamplesBothDf=pd.DataFrame(listBothExample,index=listExampleCells);
+ExamplesBothDf.to_csv(f"{snps_dir}/ExampleCells_Intersection.csv");
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
+#additional data for plots
+
+miscData={
+    "sumCountsOfBoth":np.bincount(listIntersec),
+    "medianRNA":np.median(listRNA,axis=0),
+    "medianATAC":np.median(listATAC,axis=0)};
+
+pd.DataFrame(miscData).to_csv(f"{snps_dir}/miscData.csv",index=False);
