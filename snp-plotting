@@ -1,0 +1,35 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy
+
+results_dir="/home/cbrand/snp/results/exp2_4/combine" # maybe search for all .csv files and plot all? this is inflexible!
+
+plotDataTotalfeat=pd.read_csv(f"{results_dir}/totalFeatCounts_AllCells.csv",index_col=[0]);
+
+fig0,axis=plt.subplots(figsize=(5,5));
+bars=axis.bar(plotDataTotalfeat.index,plotDataTotalfeat["Total Positions"],width=0.5,color="orange");
+axis.set_title("Total Features Across All Cells");
+axis.bar_label(bars)
+
+plotDataPercell=pd.read_csv(f"{results_dir}/RNA_ATAC_perCellResults.csv",index_col=[0]);
+
+fig,axs=plt.subplots(nrows=1,ncols=2,sharey=True,sharex=True);
+fig.suptitle("Nonzero AD Counts per Cell");
+axs[0].scatter(plotDataPercell.columns,plotDataPercell.loc["RNA"],s=1);
+axs[0].axhline(241, color='black',alpha=0.5)
+axs[0].set_yticks(range(0,1300,100));
+axs[0].set_ylim(0,1300);
+axs[0].set_xticks([]);
+axs[0].set_xticklabels([]);
+axs[0].set_title("RNA");
+axs[1].scatter(plotDataPercell.columns,plotDataPercell.loc["ATAC"],s=1);
+axs[1].axhline(211,color="black",alpha=0.5);
+axs[1].set_title("ATAC");
+
+fig2,ax=plt.subplots(1,1);
+ax.scatter(plotDataPercell.columns,plotDataPercell.loc["Both"],s=1,c="red");
+ax.set_xticklabels([]);
+ax.set_title("Nonzero AD Counts per Cell in RNA/ATAC Shared Positions");
+ax.set_xticks([]);
+ax.set_yticks(range(0,10,1));
